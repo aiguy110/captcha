@@ -148,7 +148,7 @@ class ImageCaptcha(_Captcha):
             number -= 1
         return image
 
-    def create_captcha_image(self, chars, color, background):
+    def create_captcha_image(self, chars, color, background, for_training=False):
         """Create the CAPTCHA image itself.
 
         :param chars: text to be generated.
@@ -193,43 +193,71 @@ class ImageCaptcha(_Captcha):
             return im
 
         images = []
+        actual_char_inds = []
+        ind = 0
         for c in chars:
             if random.random() > 0.5:
                 images.append(_draw_character(" "))
+                ind += 1
+            actual_char_inds.append(ind)
+            ind += 1
             images.append(_draw_character(c))
 
         text_width = sum([im.size[0] for im in images])
 
         width = max(text_width, self._width)
         image = image.resize((width, self._height))
+        if for_training:
+            return_obj = {"char_onlys": [], "final": None}
+            blank = Image.new('RGB', (width, self._height), (255,255,255))
 
         average = int(text_width / len(chars))
         rand = int(0.25 * average)
         offset = int(average * 0.1)
 
-        for im in images:
+        for i, im in enumerate(images):
             w, h = im.size
             mask = im.convert('L').point(table)
-            image.paste(im, (offset, int((self._height - h) / 2)), mask)
+            upper_left = (offset, int((self._height - h) / 2))
+            if i in actual_char_inds and for_training:
+                char_only_im = blank.copy()
+                char_only_im.paste(im, upper_left, mask) 
+                return_obj["char_onlys"].append(char_only_im)
+            image.paste(im, upper_left, mask)
             offset = offset + w + random.randint(-rand, 0)
 
         if width > self._width:
             image = image.resize((self._width, self._height))
 
-        return image
+        if for_training:
+            return_obj["final"] = image
+            return return_obj
+        else:
+            return image
 
-    def generate_image(self, chars):
+    def generate_image(self, chars, for_training=False):
         """Generate the image of the given characters.
 
         :param chars: text to be generated.
         """
         background = random_color(238, 255)
         color = random_color(10, 200, random.randint(220, 255))
-        im = self.create_captcha_image(chars, color, background)
+        
+        if for_training:
+            return_obj = self.create_captcha_image(chars, color, background, for_training=for_training) 
+            im = return_obj["final"]
+        else:
+            im = self.create_captcha_image(chars, color, background)
+
         self.create_noise_dots(im, color)
         self.create_noise_curve(im, color)
         im = im.filter(ImageFilter.SMOOTH)
-        return im
+
+        if for_training:
+            return_obj["final"] = im
+            return return_obj
+        else:
+            return im
 
 
 def random_color(start, end, opacity=None):
